@@ -3,8 +3,7 @@ package com.ianbull.j2v8_examples.webworker;
 import com.eclipsesource.v8.*;
 import com.eclipsesource.v8.utils.V8Executor;
 
-import java.util.Collection;
-import java.util.LinkedList;
+import java.util.*;
 
 public class MyV8Executor extends V8Executor {
 
@@ -12,6 +11,7 @@ public class MyV8Executor extends V8Executor {
     private Collection<String> scripts;
     private V8 runtime;
     private String result;
+    private Collection<Object> results;
     private volatile boolean terminated = false;
     private volatile boolean shuttingDown = false;
     private volatile boolean forceTerminating = false;
@@ -38,6 +38,7 @@ public class MyV8Executor extends V8Executor {
         this.script = null;
         this.scripts = scripts;
         this.longRunning = false;
+        this.results = new ArrayList<Object>();
     }
 
     @Override
@@ -58,6 +59,11 @@ public class MyV8Executor extends V8Executor {
             shuttingDown = true;
             notify();
         }
+    }
+
+    @Override
+    protected void setup(final V8 runtime) {
+        runtime.registerJavaMethod(MyV8Executor.this, "print", "print", new Class<?>[] { String.class });
     }
 
     @Override
@@ -84,16 +90,36 @@ public class MyV8Executor extends V8Executor {
     }
 
     @Override
+    public String getResult() {
+        return result;
+    }
+
+    public Collection<Object> getResults() {
+        return results;
+    }
+
+    @Override
     public void run() {
         synchronized (this) {
             runtime = V8.createV8Runtime();
             runtime.registerJavaMethod(new MyExecutorTermination(), "__j2v8__checkThreadTerminate");
-            runtime.registerJavaMethod(MyV8Executor.this, "print", "print", new Class<?>[] { String.class });
             setup(runtime);
         }
         try {
             if (!forceTerminating) {
-                Object scriptResult = runtime.executeScript("__j2v8__checkThreadTerminate();\n" + script, getName(), -1);
+                Object scriptResult = null;
+
+                if (script != null)
+                    scriptResult = runtime.executeScript("__j2v8__checkThreadTerminate();\n" + script, getName(), -1);
+                else {
+                    for (String sc: scripts) {
+                        scriptResult = runtime.executeScript("__j2v8__checkThreadTerminate();\n" + sc, getName(), -1);
+                        System.out.println(scriptResult);
+                        //runtime.getObject("document").getString("title"); // TODO extract required results here. pass a runtime => Object function
+                        results.add(scriptResult);
+                    }
+                }
+
                 if (scriptResult != null) {
                     result = scriptResult.toString();
                 }
@@ -157,19 +183,54 @@ public class MyV8Executor extends V8Executor {
 
     public static void main(String[] args) throws InterruptedException {
 
-        V8 runtime = V8.createV8Runtime();
-        MyV8Executor executor = new MyV8Executor("while (true){ print('123') }");
-        executor.start();
-        V8Object key = new V8Object(runtime);
-        runtime.registerV8Executor(key, executor);
+        // single bad scripts demo
+
+        String badScript = "while (true){ print('123') }";
+        V8 runtime1 = V8.createV8Runtime();
+        MyV8Executor executor1 = new MyV8Executor(badScript);
+        executor1.start();
+        V8Object key1 = new V8Object(runtime1);
+        runtime1.registerV8Executor(key1, executor1);
 
         Thread.sleep(1000);
 
-        runtime.shutdownExecutors(true);
+        System.out.println("executor1 is alive: " + executor1.isAlive());
+        if (executor1.isAlive()) {
+            System.out.println("executor1 timeout! shutting down...");
+            runtime1.shutdownExecutors(true);
+            Thread.sleep(100);
+        }
+        System.out.println("executor1 is alive: " + executor1.isAlive());
 
-        //assertTrue(runtime.getExecutor(key).isShuttingDown());
-        key.release();
-        runtime.release();
+        System.out.println("executor1 shutting down: " + runtime1.getExecutor(key1).isShuttingDown());
+
+        key1.release();
+        runtime1.release();
+
+        // multiple scripts demo
+
+        String[] scripts = { "var document = {}", "var title = 'new title';", "document.title = title;" };
+        V8 runtime2 = V8.createV8Runtime();
+        MyV8Executor executor2 = new MyV8Executor(Arrays.asList(scripts));
+        executor2.start();
+        V8Object key2 = new V8Object(runtime2);
+        runtime2.registerV8Executor(key2, executor2);
+
+        Thread.sleep(1000);
+
+        System.out.println("executor2 is alive: " + executor2.isAlive());
+        if (executor2.isAlive()) {
+            System.out.println("executor2 timeout! shutting down...");
+            runtime1.shutdownExecutors(true);
+            Thread.sleep(100);
+        }
+        System.out.println("executor2 is alive: " + executor2.isAlive());
+
+        System.out.println("executor2 shutting down: " + runtime2.getExecutor(key2).isShuttingDown());
+
+        key2.release();
+        runtime2.release();
+
     }
 
 }
