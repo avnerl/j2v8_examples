@@ -24,19 +24,19 @@ public class WebWorker {
 				configureWorker(runtime);
 			}
 		};
-		worker.getRutime().registerV8Executor(worker, executor);
+		worker.getRuntime().registerV8Executor(worker, executor);
 		executor.start();
 	}
 
 	public void terminate(V8Object worker, Object... s) {
-		V8Executor executor = worker.getRutime().removeExecutor(worker);
+		V8Executor executor = worker.getRuntime().removeExecutor(worker);
 		if (executor != null) {
 			executor.shutdown();
 		}
 	}
 
 	public void postMessage(V8Object worker, String... s) {
-		V8Executor executor = worker.getRutime().getExecutor(worker);
+		V8Executor executor = worker.getRuntime().getExecutor(worker);
 		if (executor != null) {
 			executor.postMessage(s);
 		}
